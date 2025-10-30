@@ -254,7 +254,7 @@ elif menu == "🌍 Heatmap":
                         nearby_places = []
                         if "Place" in df.columns:
                             matches = df[(df[lon_col].round(3) == lon) & (df[lat_col].round(3) == lat)]
-                            st.write("Columns in dataset:", matches.columns.tolist())
+                            if not matches.empty and "Place" in matches.columns:
                                 vals = matches["<exact_column_name_here>"].dropna().unique().tolist()
                                 if len(vals) > 0:
                                     nearby_places = vals
