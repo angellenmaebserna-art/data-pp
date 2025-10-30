@@ -177,7 +177,7 @@ if menu == "🏠 Dashboard":
     st.subheader("📊 Data Preview")
     st.dataframe(df.head())
 
-# -------------------- HEATMAP (REVISED: adds hotspot detection + recommendations) --------------------
+# -------------------- HEATMAP (DEDUPED PLACES + HOTSPOT DETECTION) --------------------
 elif menu == "🌍 Heatmap":
     st.title(f"🌍 Microplastic HeatMap of {selected_dataset}")
 
@@ -185,98 +185,101 @@ elif menu == "🌍 Heatmap":
     if lat_col and lon_col:
         st.success(f"Detected coordinates: **{lat_col}** and **{lon_col}**")
 
-        # normalize coordinate column names for map plotting & hotspot aggregation
+        # normalize column names for consistency
         map_df = df.rename(columns={lat_col: "latitude", lon_col: "longitude"})
         map_df["latitude"] = pd.to_numeric(map_df["latitude"], errors="coerce")
         map_df["longitude"] = pd.to_numeric(map_df["longitude"], errors="coerce")
 
-        # Try to detect a microplastic-related column
-        potential_mp_cols = [c for c in df.columns if "microplastic" in c.lower() or "micro_plastic" in c.lower() or c.lower().replace(" ", "_") == "microplastic_level"]
+        # detect microplastic column
+        potential_mp_cols = [
+            c for c in df.columns 
+            if "microplastic" in c.lower() or "micro_plastic" in c.lower() or c.lower().replace(" ", "_") == "microplastic_level"
+        ]
         mp_col = potential_mp_cols[0] if len(potential_mp_cols) > 0 else None
 
+        # filter valid coordinates
         clean_map_df = map_df[["latitude", "longitude"] + ([mp_col] if mp_col else [])].dropna(subset=["latitude", "longitude"])
+
         if clean_map_df.empty:
             st.warning("⚠️ No valid latitude/longitude data found for map display.")
         else:
-            # Display simple map
-            st.markdown("**Map (points show sampled locations)**")
+            st.markdown("**🗺️ Map (unique sample points)**")
             st.map(clean_map_df[["latitude", "longitude"]])
 
-            # If microplastic values are available, compute hotspots & recommendations
+            # if microplastic levels exist → hotspot detection
             if mp_col:
                 st.markdown("---")
-                st.subheader("🔥 Hotspot Detection & Recommendations")
+                st.subheader("🔥 Hotspot Detection and Recommendations")
 
-                # Aggregate by coordinate (rounded to cluster nearby points)
+                # cluster nearby points (rounding)
                 agg = clean_map_df.copy()
                 agg["lat_r"] = agg["latitude"].round(3)
                 agg["lon_r"] = agg["longitude"].round(3)
-                grouped = agg.groupby(["lat_r", "lon_r"])[mp_col].agg(["mean", "median", "count"]).reset_index()
+
+                # merge place if exists
+                place_col = None
+                for c in df.columns:
+                    if c.lower() in ["place", "location", "site", "area"]:
+                        place_col = c
+                        break
+                if place_col:
+                    agg["place"] = df[place_col]
+                else:
+                    agg["place"] = None
+
+                # group by rounded coordinates or place name if available
+                group_keys = ["place"] if place_col else ["lat_r", "lon_r"]
+                grouped = agg.groupby(group_keys)[mp_col].agg(["mean", "median", "count"]).reset_index()
                 grouped = grouped.rename(columns={"mean": "mp_mean", "median": "mp_median", "count": "samples"})
 
-                # Define hotspot threshold (adaptive)
-                try:
-                    threshold = grouped["mp_mean"].quantile(0.75)
-                except Exception:
-                    threshold = grouped["mp_mean"].mean()
+                # remove duplicate places (if any)
+                grouped = grouped.drop_duplicates(subset=group_keys)
 
+                # adaptive threshold
+                threshold = grouped["mp_mean"].quantile(0.75)
                 hotspots = grouped[grouped["mp_mean"] >= threshold].sort_values("mp_mean", ascending=False)
 
-                st.write(f"Detected {len(grouped)} clustered locations. Hotspot threshold set to 75th percentile ≈ **{threshold:.3f}** (adaptive).")
+                st.write(f"Detected {len(grouped)} unique clustered locations. Hotspot threshold ≈ **{threshold:.3f}**.")
+
                 if hotspots.empty:
-                    st.info("No hotspots detected — the dataset appears relatively uniform or has too few samples.")
+                    st.info("No hotspots detected. Data appears uniform or limited in range.")
                 else:
-                    # Prepare display DataFrame
                     display = hotspots.copy()
-                    display["latitude"] = display["lat_r"]
-                    display["longitude"] = display["lon_r"]
-                    display = display[["latitude", "longitude", "mp_mean", "mp_median", "samples"]].reset_index(drop=True)
+                    if place_col:
+                        display = display.rename(columns={place_col: "Place"})
                     display["mp_mean"] = display["mp_mean"].round(4)
                     display["mp_median"] = display["mp_median"].round(4)
 
-                    st.markdown("**Hotspot Summary (Clustered Coordinates)**")
+                    st.markdown("**Hotspot Summary (Unique Places or Clusters)**")
                     st.dataframe(display)
 
-                    # Recommendations per hotspot
                     st.markdown("**Recommendations for Each Hotspot:**")
                     for i, row in display.iterrows():
-                        lat = row["latitude"]
-                        lon = row["longitude"]
+                        place_name = row["Place"] if place_col and not pd.isna(row["Place"]) else f"Lat: {row.get('lat_r', '')}, Lon: {row.get('lon_r', '')}"
                         mean_val = row["mp_mean"]
                         samples = int(row["samples"])
 
-                        st.markdown(f"**• Hotspot #{i+1} — Lat: {lat}, Lon: {lon} — Mean Microplastic: {mean_val} ({samples} samples)**")
+                        st.markdown(f"**• Hotspot #{i+1} — {place_name} — Mean Microplastic: {mean_val} ({samples} samples)**")
 
-                        # Nearby places (if dataset has a 'Place' column)
-                        nearby_places = []
-                        if "Place" in df.columns:
-                            matches = df[(df[lon_col].round(3) == lon) & (df[lat_col].round(3) == lat)]
-                            if not matches.empty and "Place" in matches.columns:
-                                vals = matches["Place"].dropna().unique().tolist()
-                                if len(vals) > 0:
-                                    nearby_places = vals
-                        if nearby_places:
-                            st.write(f"_Nearby place(s):_ {', '.join(nearby_places[:5])}")
-
-                        # Recommendations (in English)
+                        # Recommendations
                         st.markdown(
-                            "- **Avoid consuming fish or seafood** from this location until further testing confirms safety.\n"
-                            "- **Report to local authorities or environmental agencies** (e.g., BFAR, municipal offices) for verification and monitoring.\n"
-                            "- **For fishermen:** use gloves when handling samples or catch; wash seafood thoroughly before cooking; avoid using local water sources for drinking.\n"
-                            "- **Community actions:** organize cleanup drives, install trash traps in drainage systems, and promote proper waste disposal awareness.\n"
-                            "- **Long-term:** initiate a water quality monitoring program and partner with universities or government agencies for further study and mitigation planning."
+                            "- **Avoid consuming fish or seafood** from this location until safety is confirmed.\n"
+                            "- **Inform local authorities** (e.g., BFAR, DENR, or LGU) for monitoring and investigation.\n"
+                            "- **For residents/fishermen:** use gloves when handling samples, clean seafood thoroughly, and avoid direct contact with the water.\n"
+                            "- **Community efforts:** organize cleanups, enhance waste management, and raise public awareness.\n"
+                            "- **Long-term:** establish periodic monitoring and collaborate with institutions for mitigation."
                         )
 
-                    # Option to download hotspot data as CSV
+                    # export summary as CSV
                     csv_hotspots = display.to_csv(index=False).encode("utf-8")
                     st.download_button(
                         label="⬇️ Download Hotspot Summary (CSV)",
                         data=csv_hotspots,
-                        file_name=f"{selected_dataset}_hotspots_summary.csv",
+                        file_name=f"{selected_dataset}_unique_hotspots.csv",
                         mime="text/csv"
                     )
             else:
-                st.info("Microplastic level column not detected — hotspot detection unavailable. Rename your data column to include 'microplastic' for auto-detection.")
+                st.info("Microplastic column not detected — rename your column to include 'microplastic' for hotspot detection.")
     else:
         st.error("⚠️ No latitude/longitude columns found in dataset.")
 
