@@ -237,7 +237,7 @@ elif menu == "🌍 Heatmap":
                     st.markdown("**Hotspot Summary (Clustered Coordinates)**")
                     st.dataframe(display)
 
-                   # Recommendations per hotspot
+                    # Recommendations per hotspot
                     st.markdown("**Recommendations for Each Hotspot:**")
                     for i, row in display.iterrows():
                         lat = row["latitude"]
@@ -245,44 +245,27 @@ elif menu == "🌍 Heatmap":
                         mean_val = row["mp_mean"]
                         samples = int(row["samples"])
 
-                        st.markdown(f"### 🌍 Hotspot #{i+1}")
-                        st.write(f"**Location:** Lat: {lat}, Lon: {lon}")
-                        st.write(f"**Mean Microplastic Level:** {mean_val}")
-                        st.write(f"**Samples Collected:** {samples}")
+                        st.markdown(f"**• Hotspot #{i+1} — Lat: {lat}, Lon: {lon} — Mean Microplastic: {mean_val} ({samples} samples)**")
 
                         # Nearby places (if dataset has a 'Place' column)
                         nearby_places = []
                         if "Place" in df.columns:
                             matches = df[(df[lon_col].round(3) == lon) & (df[lat_col].round(3) == lat)]
                             if not matches.empty and "Place" in matches.columns:
-                                vals = matches["<exact_column_name_here>"].dropna().unique().tolist()
+                                vals = matches["Place"].dropna().unique().tolist()
                                 if len(vals) > 0:
                                     nearby_places = vals
-
                         if nearby_places:
                             st.write(f"_Nearby place(s):_ {', '.join(nearby_places[:5])}")
 
-                        # Create recommendations as a table instead of bullets
-                        rec_data = {
-                            "Category": [
-                                "Health Advisory",
-                                "Reporting",
-                                "Fishermen Guidelines",
-                                "Community Actions",
-                                "Long-Term Actions"
-                            ],
-                            "Recommendation": [
-                                "Avoid consuming fish or seafood from this area until further testing confirms safety.",
-                                "Report findings to local authorities or environmental agencies (e.g., BFAR, LGU).",
-                                "Use gloves when handling samples or catch; wash seafood thoroughly; avoid using local water sources for drinking.",
-                                "Organize cleanup drives, install trash traps in drainage systems, and promote proper waste disposal awareness.",
-                                "Initiate a water quality monitoring program and collaborate with universities or government agencies for further research and mitigation."
-                            ]
-                        }
-
-                        rec_df = pd.DataFrame(rec_data)
-                        st.table(rec_df)
-                        st.markdown("---")
+                        # Recommendations 
+                        st.markdown(
+                            "- **Avoid consuming fish or seafood** from this location until further testing confirms safety.\n"
+                            "- **Report to local authorities or environmental agencies** (e.g., BFAR, municipal offices) for verification and monitoring.\n"
+                            "- **For fishermen:** use gloves when handling samples or catch; wash seafood thoroughly before cooking; avoid using local water sources for drinking.\n"
+                            "- **Community actions:** organize cleanup drives, install trash traps in drainage systems, and promote proper waste disposal awareness.\n"
+                            "- **Long-term:** initiate a water quality monitoring program and partner with universities or government agencies for further study and mitigation planning."
+                        )
 
                     # Option to download hotspot data as CSV
                     csv_hotspots = display.to_csv(index=False).encode("utf-8")
@@ -292,7 +275,6 @@ elif menu == "🌍 Heatmap":
                         file_name=f"{selected_dataset}_hotspots_summary.csv",
                         mime="text/csv"
                     )
-
             else:
                 st.info("Microplastic level column not detected — hotspot detection unavailable. Rename your data column to include 'microplastic' for auto-detection.")
     else:
